@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DealConnect Receipts</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0b9e43">
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+    <style>
+        :root { --dc-green: #0b9e43; --dc-red: #c8102e; --bg-color: #f4f7f6; --panel-bg: #ffffff; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background-color: var(--bg-color); margin: 0; padding: 20px; display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; }
+        
+        /* Navigation */
+        .top-nav { width: 100%; max-width: 920px; background: var(--panel-bg); padding: 15px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); display: flex; justify-content: center; gap: 20px; }
+        .nav-link { text-decoration: none; font-weight: bold; padding: 8px 16px; border-radius: 6px; transition: 0.2s; }
+        .nav-link.active { background: var(--dc-green); color: white; }
+        .nav-link:not(.active) { background: #e5e7eb; color: #333; }
+        .nav-link:not(.active):hover { background: #d1d5db; }
+
+        .editor-panel { background: var(--panel-bg); padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); width: 100%; max-width: 500px; height: fit-content; }
+        .preview-panel { display: flex; flex-direction: column; align-items: center; gap: 15px; width: 100%; max-width: 400px;}
+        .history-panel { background: var(--panel-bg); padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); width: 100%; max-width: 920px; overflow-x: auto; margin-top: 10px; }
+        
+        h2, h3 { margin-top: 0; color: #333; }
+        h2 { font-size: 20px; border-bottom: 3px solid var(--dc-green); padding-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+        
+        .form-group { margin-bottom: 15px; width: 100%; }
+        .form-group label { display: block; font-weight: 600; font-size: 13px; margin-bottom: 6px; color: #444; }
+        .form-group input, .form-group select { width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px; box-sizing: border-box; font-family: inherit; }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--dc-green); }
+        
+        .btn { padding: 12px 15px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%; transition: 0.2s; color: white; font-size: 14px; }
+        .btn-primary { background-color: var(--dc-green); } .btn-primary:hover { background-color: #098236; }
+        .btn-danger { background-color: var(--dc-red); }
+        .btn-secondary { background-color: #374151; }
+        .flex-row { display: flex; gap: 10px; width: 100%; }
+        
+        .product-entry { background: #f9fafb; padding: 15px; border: 1px solid #e5e7eb; margin-bottom: 15px; border-radius: 8px; border-left: 4px solid var(--dc-red); }
+        .payment-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: #f0fdf4; padding: 15px; border-radius: 8px; border: 1px solid #bbf7d0; margin-top: 15px; }
+
+        .history-table { width: 100%; border-collapse: collapse; min-width: 600px; font-size: 13px; }
+        .history-table th { background: #f3f4f6; padding: 10px; text-align: left; border-bottom: 2px solid #ddd; }
+        .history-table td { padding: 10px; border-bottom: 1px solid #eee; }
+        .clickable-serial { color: var(--dc-green); cursor: pointer; font-weight: bold; text-decoration: underline; }
+
+        /* RECEIPT STYLES */
+        #receipt-container { background: #fff; width: 340px; padding: 30px 25px; color: #111; font-family: 'Courier New', Courier, monospace; font-size: 12px; line-height: 1.5; box-sizing: border-box; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+        .r-center { text-align: center; }
+        .r-logo-container { margin-bottom: 10px; display: flex; justify-content: center; align-items: center; }
+        .r-logo-container img { max-width: 160px; max-height: 80px; object-fit: contain; }
+        .r-title { font-family: Arial, sans-serif; font-weight: 900; font-size: 18px; margin-bottom: 5px; }
+        .r-contact { margin-bottom: 15px; font-size: 11px; font-family: Arial, sans-serif; }
+        .r-divider { border-bottom: 1px dashed #000; margin: 10px 0; }
+        .r-meta { margin-bottom: 15px; }
+        .r-customer { font-weight: bold; margin-bottom: 15px; }
+        .r-kra { font-size: 11px; font-weight: normal; margin-top: 3px; }
+        .r-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+        .r-table th { border-top: 1px dashed #000; border-bottom: 1px dashed #000; padding: 6px 0; text-align: left; font-weight: bold; font-size: 11px; }
+        .r-table td { padding: 6px 0; vertical-align: top; font-size: 11px; }
+        .r-right { text-align: right !important; }
+        .r-totals { width: 100%; margin-bottom: 20px; }
+        .r-row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 12px; }
+        .r-total-main { border-top: 1px dashed #000; border-bottom: 1px dashed #000; font-weight: bold; padding: 8px 0; margin-top: 5px; font-size: 14px; }
+        .r-vat-row { font-size: 11px; color: #333; }
+        .r-footer-text { font-size: 10px; margin-bottom: 20px; line-height: 1.4; text-align: center; font-family: Arial, sans-serif; }
+        .r-qr-box { margin: 0 auto 15px auto; display: flex; justify-content: center; }
+        .r-primary-serial { font-weight: bold; font-size: 11px; margin-bottom: 15px; text-align: center; }
+        .r-hashes { display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 15px; border-top: 1px dashed #ccc; padding-top: 10px; }
+        .r-session { display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 15px; }
+        .r-validation { font-size: 9px; line-height: 1.5; color: #444; text-align: center; font-family: Arial, sans-serif; }
+    </style>
+</head>
+<body>
+
+    <div class="top-nav">
+        <a href="index.html" class="nav-link active">🧾 Receipt Generator</a>
+        <a href="invoice.html" class="nav-link">📄 Invoice Generator</a>
+    </div>
+
+    <datalist id="safaricom-products"></datalist>
+
+    <div class="editor-panel">
+        <h2>Receipt Editor <span style="font-size: 10px; font-weight: normal; color: #777;">(Auto-saves drafts)</span></h2>
+        
+        <div class="form-group">
+            <label>Date & Time</label>
+            <input type="datetime-local" id="inDate" oninput="triggerUpdate()">
+        </div>
+        <div class="flex-row">
+            <div class="form-group"><label>Entered By</label><input type="text" id="inEnteredBy" value="GIBSON" oninput="triggerUpdate()"></div>
+            <div class="form-group"><label>Location</label><input type="text" id="inLocation" value="NBI | BNC" oninput="triggerUpdate()"></div>
+        </div>
+        
+        <div class="form-group">
+            <label>Customer Type</label>
+            <select id="inCustType" onchange="triggerUpdate()">
+                <option value="WALK-IN-CUSTOMER">WALK-IN</option>
+                <option value="FIELD">FIELD</option>
+                <option value="REFERRAL">REFERRAL</option>
+            </select>
+        </div>
+
+        <div class="form-group"><label>Customer Name</label><input type="text" id="inCustName" placeholder="e.g. CLEVESAFE COMPANY" oninput="triggerUpdate()"></div>
+        <div class="form-group"><label>Customer KRA PIN (Optional)</label><input type="text" id="inKraPin" placeholder="e.g. P000000000A" oninput="triggerUpdate()"></div>
+        <div class="form-group"><label>Company VAT REG. (Optional)</label><input type="text" id="inCompanyVat" placeholder="e.g. P051234567M" oninput="triggerUpdate()"></div>
+
+        <h3 style="border-bottom: 1px solid #ccc; padding-bottom: 5px;">Products</h3>
+        <div id="item-list"></div>
+        <div class="flex-row">
+            <button class="btn btn-secondary" type="button" onclick="addItem()">+ Add Item</button>
+            <button class="btn btn-danger" type="button" onclick="removeItem()">- Remove Item</button>
+        </div>
+
+        <h3 style="border-bottom: 1px solid #ccc; padding-bottom: 5px; margin-top: 20px;">Payment Breakdown</h3>
+        <div class="payment-grid">
+            <div class="form-group"><label>Cash (KSh)</label><input type="number" id="payCash" value="0" oninput="triggerUpdate()"></div>
+            <div class="form-group"><label>M-Pesa (KSh)</label><input type="number" id="payMpesa" value="0" oninput="triggerUpdate()"></div>
+            <div class="form-group"><label>Card (KSh)</label><input type="number" id="payCard" value="0" oninput="triggerUpdate()"></div>
+            <div class="form-group"><label>Bonga Points (Qty)</label><input type="number" id="payBonga" value="0" oninput="triggerUpdate()"></div>
+        </div>
+        
+        <button class="btn btn-secondary" style="margin-top: 15px; border: 1px solid #ccc; background: white; color: #333;" onclick="clearDraft()">🗑️ Clear Form / Start Fresh</button>
+    </div>
+
+    <div class="preview-panel">
+        <button class="btn btn-secondary" style="margin-bottom: 5px;" onclick="renderReceipt()">🔄 Update Preview</button>
+        <div class="flex-row" style="width: 100%;">
+            <button class="btn btn-primary" type="button" onclick="downloadReceipt('jpg')">⬇️ Download JPG</button>
+            <button class="btn btn-danger" type="button" onclick="downloadReceipt('pdf')">⬇️ Download PDF</button>
+        </div>
+
+        <div id="receipt-container">
+            <div class="r-center">
+                <div class="r-logo-container"><img src="logo.jpg" alt="DealConnect Logo" onerror="this.style.display='none'; document.getElementById('r-title-fallback').style.display='block';"></div>
+                <div class="r-title" id="r-title-fallback" style="display:none;"><span style="color:var(--dc-green)">Deal</span><span style="color:var(--dc-red)">Connect</span></div>
+                <div class="r-contact">AUTHORISED SAFARICOM DEALER<br>TEL: 0723040404<br><span id="r-company-vat-display" style="display:none;">VAT REG: <span id="r-company-vat"></span></span></div>
+            </div>
+            <div class="r-divider"></div>
+            <div class="r-meta">
+                Date: <span id="r-date"></span><br>
+                Served by: <span id="r-entered"></span><br>
+                Type: RETAIL SALE (<span id="r-cust-type"></span>)
+            </div>
+            <div class="r-customer">
+                Customer: <span id="r-custname"></span>
+                <div class="r-kra" id="r-kra-container" style="display:none;">KRA PIN: <span id="r-krapin"></span></div>
+            </div>
+
+            <table class="r-table">
+                <thead><tr><th style="width: 15%;">QTY</th><th style="width: 55%;">ITEM</th><th style="width: 30%;" class="r-right">TOTAL</th></tr></thead>
+                <tbody id="r-tbody"></tbody>
+            </table>
+
+            <div class="r-totals">
+                <div class="r-row"><span>SUB TOTAL (Excl. VAT)</span><span id="r-subtotal">0.00</span></div>
+                <div class="r-row r-vat-row"><span>VAT (16%)</span><span id="r-vat">0.00</span></div>
+                <div class="r-row r-total-main"><span>TOTAL DUE</span><span>KSh <span id="r-total">0.00</span></span></div>
+                <div class="r-row" style="margin-top: 5px;"><span>TENDERED:</span><span id="r-tendered">0.00</span></div>
+                <div class="r-row" style="font-weight: bold;"><span>CHANGE:</span><span>KSh <span id="r-change">0.00</span></span></div>
+            </div>
+            <div id="r-payment-methods" style="font-size: 10px; color: #444; margin-bottom: 10px; text-align: right;"></div>
+
+            <div class="r-divider"></div>
+            <div class="r-footer-text">
+                All Transactions in KES. Prices inclusive of VAT.<br>
+                Thank you for shopping with DealConnect.<br>
+                Goods sold are subject to manufacturer's warranty.
+            </div>
+
+            <div class="r-center">
+                <div class="r-qr-box" id="r-qr-box"></div>
+                <div style="font-size: 10px; margin-bottom: 2px;">TXN SERIAL</div>
+                <div class="r-primary-serial" id="r-tx-serial"></div>
+                <div class="r-hashes">
+                    <div>Compact<br><strong id="r-compact"></strong></div>
+                    <div>Readable<br><strong id="r-readable"></strong></div>
+                </div>
+                <div class="r-session">
+                    <div>Loc<br><strong id="r-loc-display"></strong></div>
+                    <div>Terminal<br><strong>001</strong></div>
+                    <div>Check<br><strong id="r-check"></strong></div>
+                </div>
+                <div class="r-validation">Secured with KRA TIMS validation<br>Generated: <span id="r-gen-date"></span></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="history-panel">
+        <h3>Saved Receipts <span style="font-size: 11px; font-weight: normal; color: #666;">(Click a serial to reload receipt)</span></h3>
+        <table class="history-table">
+            <thead><tr><th>Date Saved</th><th>Readable Serial</th><th>Customer Name</th><th>Total Amount (KSh)</th><th>Action</th></tr></thead>
+            <tbody id="history-tbody"><tr><td colspan="5" style="text-align: center; color: #888;">No saved receipts yet.</td></tr></tbody>
+        </table>
+        <button class="btn btn-secondary" style="margin-top: 15px; width: auto; font-size: 12px;" onclick="clearHistory()">⚠️ Clear All History</button>
+    </div>
+
+<script>
+    // Register Service Worker for PWA
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js').catch(err => console.error('Service Worker registration failed:', err));
+    }
+
+    const defaultProducts = [
+        { name: "Safaricom Business Fiber 15Mbps", code: "SB-F15", price: 2999 },
+        { name: "Safaricom Business Fiber 50Mbps", code: "SB-F50", price: 4999 },
+        { name: "Safaricom 5G Wi-Fi Router (CPE)", code: "SF-5G-CPE", price: 9999 },
+        { name: "Safaricom 4G Wi-Fi Router", code: "SF-4G-RTR", price: 5999 },
+        { name: "TECNO CAMON 30 256GB", code: "TC-2006", price: 29999 },
+        { name: "Samsung Galaxy A14 64GB", code: "SM-A14", price: 22000 },
+        { name: "Samsung Galaxy S24 Ultra", code: "SM-S24U", price: 195000 },
+        { name: "Airtime 100", code: "AT-100", price: 100 },
+        { name: "Airtime 500", code: "AT-500", price: 500 }
+    ];
+
+    let allProducts = [];
+    let itemCount = 0;
+    let qrInstance = null;
+    let currentReceiptState = {};
+
+    window.onload = () => {
+        const savedProducts = JSON.parse(localStorage.getItem('dealConnectProducts') || '[]');
+        const merged = [...defaultProducts];
+        savedProducts.forEach(sp => { if(!merged.find(p => p.name === sp.name)) merged.push(sp); });
+        allProducts = merged;
+        populateDatalist();
+        loadHistoryTable();
+
+        const draft = JSON.parse(localStorage.getItem('dealConnectDraft'));
+        if (draft && draft.items && draft.items.length > 0) { restoreFormState(draft); } 
+        else { setLocalTime(); addItem(); }
+        renderReceipt();
+    };
+
+    function setLocalTime() {
+        const now = new Date();
+        now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+        document.getElementById('inDate').value = now.toISOString().slice(0,16);
+    }
+
+    function populateDatalist() {
+        const datalist = document.getElementById('safaricom-products');
+        datalist.innerHTML = '';
+        allProducts.forEach(p => {
+            const option = document.createElement('option');
+            option.value = p.name;
+            datalist.appendChild(option);
+        });
+    }
+
+    function triggerUpdate() { renderReceipt(); saveDraft(); }
+
+    function saveDraft() {
+        const draft = {
+            inDate: document.getElementById('inDate').value,
+            inEnteredBy: document.getElementById('inEnteredBy').value,
+            inLocation: document.getElementById('inLocation').value,
+            inCustType: document.getElementById('inCustType').value,
+            inCompanyVat: document.getElementById('inCompanyVat').value,
+            inCustName: document.getElementById('inCustName').value,
+            inKraPin: document.getElementById('inKraPin').value,
+            payCash: document.getElementById('payCash').value,
+            payMpesa: document.getElementById('payMpesa').value,
+            payCard: document.getElementById('payCard').value,
+            payBonga: document.getElementById('payBonga').value,
+            items: []
+        };
+        for (let i = 1; i <= itemCount; i++) {
+            const el = document.getElementById(`item-${i}`);
+            if (el) {
+                draft.items.push({
+                    name: document.getElementById(`name-${i}`).value,
+                    qty: document.getElementById(`qty-${i}`).value,
+                    code: document.getElementById(`code-${i}`).value,
+                    amt: document.getElementById(`amt-${i}`).value,
+                    serial: document.getElementById(`serial-${i}`).value
+                });
+            }
+        }
+        localStorage.setItem('dealConnectDraft', JSON.stringify(draft));
+    }
+
+    function restoreFormState(state) {
+        document.getElementById('inDate').value = state.inDate || '';
+        document.getElementById('inEnteredBy').value = state.inEnteredBy || '';
+        document.getElementById('inLocation').value = state.inLocation || '';
+        document.getElementById('inCustType').value = state.inCustType || 'WALK-IN-CUSTOMER';
+        document.getElementById('inCompanyVat').value = state.inCompanyVat || '';
+        document.getElementById('inCustName').value = state.inCustName || '';
+        document.getElementById('inKraPin').value = state.inKraPin || '';
+        document.getElementById('payCash').value = state.payCash || '0';
+        document.getElementById('payMpesa').value = state.payMpesa || '0';
+        document.getElementById('payCard').value = state.payCard || '0';
+        document.getElementById('payBonga').value = state.payBonga || '0';
+
+        document.getElementById('item-list').innerHTML = '';
+        itemCount = 0;
+        state.items.forEach(item => {
+            addItem();
+            document.getElementById(`name-${itemCount}`).value = item.name;
+            document.getElementById(`qty-${itemCount}`).value = item.qty;
+            document.getElementById(`code-${itemCount}`).value = item.code;
+            document.getElementById(`amt-${itemCount}`).value = item.amt;
+            document.getElementById(`serial-${itemCount}`).value = item.serial;
+        });
+    }
+
+    function clearDraft() {
+        if(confirm("Are you sure you want to clear the form?")) {
+            localStorage.removeItem('dealConnectDraft');
+            document.getElementById('inCustName').value = '';
+            document.getElementById('inKraPin').value = '';
+            document.getElementById('payCash').value = '0';
+            document.getElementById('payMpesa').value = '0';
+            document.getElementById('payCard').value = '0';
+            document.getElementById('payBonga').value = '0';
+            document.getElementById('item-list').innerHTML = '';
+            itemCount = 0;
+            setLocalTime();
+            addItem();
+            renderReceipt();
+        }
+    }
+
+    function addItem() {
+        itemCount++;
+        const id = itemCount;
+        const container = document.getElementById('item-list');
+        const div = document.createElement('div');
+        div.className = 'product-entry';
+        div.id = `item-${id}`;
+        div.innerHTML = `
+            <div class="form-group"><label>Product Name</label><input type="text" list="safaricom-products" id="name-${id}" placeholder="e.g. Fiber 50Mbps..." oninput="handleProductSelect(${id})"></div>
+            <div class="flex-row">
+                <div class="form-group" style="width: 25%;"><label>Qty</label><input type="number" id="qty-${id}" value="1" min="1" oninput="triggerUpdate()"></div>
+                <div class="form-group" style="width: 35%;"><label>Item Code</label><input type="text" id="code-${id}" oninput="triggerUpdate()"></div>
+                <div class="form-group" style="width: 40%;"><label>Price (KSh)</label><input type="number" id="amt-${id}" value="0" oninput="triggerUpdate()"></div>
+            </div>
+            <div class="form-group" style="margin-bottom:0;"><input type="text" id="serial-${id}" placeholder="Device Serial / IMEI (Optional)" oninput="triggerUpdate()"></div>
+        `;
+        container.appendChild(div);
+        triggerUpdate();
+    }
+
+    function removeItem() {
+        if (itemCount > 1) {
+            const item = document.getElementById(`item-${itemCount}`);
+            if (item) { item.remove(); itemCount--; }
+            triggerUpdate();
+        }
+    }
+
+    function handleProductSelect(index) {
+        const nameInput = document.getElementById(`name-${index}`).value;
+        const prod = allProducts.find(p => p.name.toLowerCase() === nameInput.toLowerCase());
+        if (prod) {
+            document.getElementById(`code-${index}`).value = prod.code;
+            document.getElementById(`amt-${index}`).value = prod.price;
+        } else if (nameInput.length > 2 && !document.getElementById(`code-${index}`).value) {
+            document.getElementById(`code-${index}`).value = "NEW-" + Math.floor(Math.random() * 1000);
+        }
+        triggerUpdate();
+    }
+
+    function formatMoney(amount) { return parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+    function formatDateForReceipt(isoString) {
+        if(!isoString) return "";
+        const d = new Date(isoString);
+        const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        let hrs = String(d.getHours()).padStart(2,'0');
+        let mins = String(d.getMinutes()).padStart(2,'0');
+        return `${days[d.getDay()]} ${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}. Time: ${hrs}:${mins}:00`;
+    }
+
+    function generateDynamicSerials(dateStr, custName) {
+        const d = dateStr ? new Date(dateStr) : new Date();
+        const nameParts = custName.trim().split(' ').filter(p => p.length > 0);
+        let initials = nameParts.length > 0 ? nameParts.map(w => w[0]).join('').substring(0,3).toUpperCase() : "CUS";
+        const dd = String(d.getDate()).padStart(2,'0'); const mm = String(d.getMonth()+1).padStart(2,'0'); const yy = String(d.getFullYear()).slice(2);
+        const hh = String(d.getHours()).padStart(2,'0'); const mn = String(d.getMinutes()).padStart(2,'0');
+        return {
+            compact: `DC_EA${initials}${dd}${mm}${yy}${hh}${mn}`,
+            readable: `DC_EA-${initials}-${dd}${mm}${yy}-${hh}${mn}`,
+            tx: `DCEA-RCT-${dd}${mm}${yy}-${hh}${mn}`
+        };
+    }
+
+    function renderReceipt() {
+        const inDate = document.getElementById('inDate').value;
+        const custName = document.getElementById('inCustName').value.trim();
+        const custType = document.getElementById('inCustType').value;
+        const formattedDate = formatDateForReceipt(inDate);
+        
+        const serials = generateDynamicSerials(inDate, custName);
+        document.getElementById('r-tx-serial').innerText = serials.tx;
+        document.getElementById('r-compact').innerText = serials.compact;
+        document.getElementById('r-readable').innerText = serials.readable;
+        document.getElementById('r-check').innerText = `✔️${Math.floor(Math.random() * 9) + 1}`;
+
+        document.getElementById('r-date').innerText = formattedDate;
+        document.getElementById('r-gen-date').innerText = formattedDate;
+        document.getElementById('r-entered').innerText = document.getElementById('inEnteredBy').value.toUpperCase();
+        document.getElementById('r-loc-display').innerText = document.getElementById('inLocation').value.toUpperCase();
+        document.getElementById('r-custname').innerText = custName.toUpperCase() || "WALK-IN";
+        document.getElementById('r-cust-type').innerText = custType;
+
+        const compVat = document.getElementById('inCompanyVat').value.trim().toUpperCase();
+        if(compVat) { document.getElementById('r-company-vat-display').style.display = 'inline'; document.getElementById('r-company-vat').innerText = compVat; } 
+        else { document.getElementById('r-company-vat-display').style.display = 'none'; }
+
+        const kraPin = document.getElementById('inKraPin').value.trim().toUpperCase();
+        if(kraPin) { document.getElementById('r-kra-container').style.display = 'block'; document.getElementById('r-krapin').innerText = kraPin; } 
+        else { document.getElementById('r-kra-container').style.display = 'none'; }
+
+        const tbody = document.getElementById('r-tbody');
+        tbody.innerHTML = '';
+        let totalDue = 0;
+
+        for (let i = 1; i <= itemCount; i++) {
+            const el = document.getElementById(`item-${i}`);
+            if (!el) continue;
+            const qty = parseInt(document.getElementById(`qty-${i}`).value) || 0;
+            const amt = parseFloat(document.getElementById(`amt-${i}`).value) || 0;
+            const name = document.getElementById(`name-${i}`).value;
+            const code = document.getElementById(`code-${i}`).value;
+            const serial = document.getElementById(`serial-${i}`).value;
+            const lineTotal = qty * amt;
+            totalDue += lineTotal;
+            
+            if(qty > 0 && name) {
+                const tr = document.createElement('tr');
+                let itemHtml = `<strong>${name}</strong><br><span style="font-size:9px; color:#555;">Code: ${code} @ ${formatMoney(amt)}</span>`;
+                if(serial) itemHtml += `<br><span style="font-size:9px; color:#555;">S/N: ${serial}</span>`;
+                tr.innerHTML = `<td>${qty}</td><td>${itemHtml}</td><td class="r-right">${formatMoney(lineTotal)}</td>`;
+                tbody.appendChild(tr);
+            }
+        }
+
+        const subtotalExclVat = totalDue / 1.16;
+        const vatAmount = totalDue - subtotalExclVat;
+
+        // Payment Calculation
+        const cash = parseFloat(document.getElementById('payCash').value) || 0;
+        const mpesa = parseFloat(document.getElementById('payMpesa').value) || 0;
+        const card = parseFloat(document.getElementById('payCard').value) || 0;
+        const bongaPts = parseFloat(document.getElementById('payBonga').value) || 0;
+        const bongaKsh = bongaPts * 0.3; // 10000 points = 3000 KES
+        
+        let tendered = cash + mpesa + card + bongaKsh;
+        
+        // Auto-fill visually if all are 0
+        let visualTendered = tendered;
+        let breakdownHtml = "";
+        
+        if(tendered === 0 && totalDue > 0) {
+            visualTendered = totalDue;
+        } else {
+            let methods = [];
+            if(cash > 0) methods.push(`Cash: ${formatMoney(cash)}`);
+            if(mpesa > 0) methods.push(`M-Pesa: ${formatMoney(mpesa)}`);
+            if(card > 0) methods.push(`Card: ${formatMoney(card)}`);
+            if(bongaPts > 0) methods.push(`Bonga: ${formatMoney(bongaKsh)} (${bongaPts} pts)`);
+            breakdownHtml = "Paid via: " + methods.join(" | ");
+        }
+
+        let change = visualTendered - totalDue;
+        if(change < 0) change = 0;
+
+        document.getElementById('r-subtotal').innerText = formatMoney(subtotalExclVat);
+        document.getElementById('r-vat').innerText = formatMoney(vatAmount);
+        document.getElementById('r-total').innerText = formatMoney(totalDue);
+        document.getElementById('r-tendered').innerText = formatMoney(visualTendered);
+        document.getElementById('r-change').innerText = formatMoney(change);
+        document.getElementById('r-payment-methods').innerText = breakdownHtml;
+
+        const qrBox = document.getElementById('r-qr-box');
+        qrBox.innerHTML = ''; 
+        qrInstance = new QRCode(qrBox, { text: "THANK YOU FOR SHOPPING WITH DEALCONNECT EAST AFRICA\n0723040404", width: 80, height: 80, colorDark : "#000", colorLight : "#fff", correctLevel : QRCode.CorrectLevel.L });
+
+        currentReceiptState = {
+            id: serials.readable, compact: serials.compact, dateSaved: new Date().toLocaleString(),
+            customer: custName || "WALK-IN", total: totalDue, formState: JSON.parse(localStorage.getItem('dealConnectDraft'))
+        };
+    }
+
+    function downloadReceipt(type) {
+        renderReceipt();
+        if (currentReceiptState.total > 0) {
+            let history = JSON.parse(localStorage.getItem('dealConnectHistory') || '[]');
+            history = history.filter(h => h.id !== currentReceiptState.id);
+            history.unshift(currentReceiptState);
+            localStorage.setItem('dealConnectHistory', JSON.stringify(history));
+            loadHistoryTable();
+        }
+
+        const receipt = document.getElementById('receipt-container');
+        if(type === 'jpg') {
+            html2canvas(receipt, { scale: 3, useCORS: true }).then(canvas => {
+                const link = document.createElement('a');
+                link.download = `DealConnect_RCT_${currentReceiptState.id}.jpg`;
+                link.href = canvas.toDataURL('image/jpeg', 1.0); link.click();
+            });
+        } else {
+            window.jsPDF = window.jspdf.jsPDF;
+            html2canvas(receipt, { scale: 3, useCORS: true }).then(canvas => {
+                const imgData = canvas.toDataURL('image/jpeg', 1.0);
+                const pdfWidth = 80; const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+                const pdf = new jsPDF('p', 'mm', [pdfWidth, pdfHeight]);
+                pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+                pdf.save(`DealConnect_RCT_${currentReceiptState.id}.pdf`);
+            });
+        }
+    }
+
+    function loadHistoryTable() {
+        const history = JSON.parse(localStorage.getItem('dealConnectHistory') || '[]');
+        const tbody = document.getElementById('history-tbody');
+        tbody.innerHTML = '';
+        if(history.length === 0) { tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: #888;">No saved receipts yet.</td></tr>`; return; }
+        history.forEach(item => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${item.dateSaved}</td><td><span class="clickable-serial" onclick="loadReceiptFromHistory('${item.id}')">${item.id}</span><br><span style="font-size:10px;color:#777;">${item.compact}</span></td><td>${item.customer.toUpperCase()}</td><td>KSh ${formatMoney(item.total)}</td><td><button onclick="loadReceiptFromHistory('${item.id}')" style="padding: 4px 8px; font-size:11px; cursor:pointer;">Load</button></td>`;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function loadReceiptFromHistory(id) {
+        const history = JSON.parse(localStorage.getItem('dealConnectHistory') || '[]');
+        const item = history.find(h => h.id === id);
+        if(item && item.formState) { restoreFormState(item.formState); renderReceipt(); saveDraft(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+    }
+
+    function clearHistory() { if(confirm("Permanently delete all saved receipt history?")) { localStorage.removeItem('dealConnectHistory'); loadHistoryTable(); } }
+</script>
+</body>
+</html>
